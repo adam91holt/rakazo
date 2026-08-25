@@ -4,10 +4,24 @@ export DISPLAY="${DISPLAY:-:1}"
 export HOME="${HOME:-/home/rakazo}"
 AGENT_HOME="$HOME"
 mkdir -p "$AGENT_HOME" "$AGENT_HOME/.local/bin" "$AGENT_HOME/.config" /tmp/rakazo /tmp/.X11-unix /tmp/fluxbox-home
+# The image cannot bake anything into $AGENT_HOME: it is bind-mounted per bot.
+# Link the reference in on each start so it is there without shadowing files.
+ln -sfn /usr/share/rakazo/reference "$AGENT_HOME/reference" 2>/dev/null || true
 export PATH="$AGENT_HOME/.local/bin:/usr/local/bin:$PATH"
 export NPM_CONFIG_PREFIX="$AGENT_HOME/.local"
 export PIP_USER=1
 cd "$AGENT_HOME"
+
+# trixie's slim base ships no /etc/machine-id. D-Bus and Chromium both read it,
+# and its absence surfaces later as unrelated-looking failures. Generate one per
+# container rather than baking a shared id into the image.
+if [[ ! -s /etc/machine-id ]]; then
+  if command -v dbus-uuidgen >/dev/null 2>&1; then
+    dbus-uuidgen > /etc/machine-id 2>/dev/null || true
+  else
+    tr -dc 'a-f0-9' </dev/urandom | head -c 32 > /etc/machine-id 2>/dev/null || true
+  fi
+fi
 
 rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
 
@@ -32,14 +46,14 @@ if command -v dbus-launch >/dev/null 2>&1; then
   eval "$(dbus-launch --sh-syntax)"
 fi
 
-xsetroot -solid "#111113" >/dev/null 2>&1 || true
+xsetroot -solid "#0D0D0E" >/dev/null 2>&1 || true
 mkdir -p /tmp/fluxbox-home/.fluxbox
 cp /etc/rakazo/fluxbox/init /tmp/fluxbox-home/.fluxbox/init
 cp /etc/rakazo/fluxbox/apps /tmp/fluxbox-home/.fluxbox/apps 2>/dev/null || true
 cp /etc/rakazo/fluxbox/menu /tmp/fluxbox-home/.fluxbox/menu 2>/dev/null || true
 cat > /tmp/fluxbox-home/.fluxbox/startup <<'EOF'
 #!/bin/sh
-xsetroot -solid "#111113"
+xsetroot -solid "#0D0D0E"
 exec fluxbox -rc /tmp/fluxbox-home/.fluxbox/init
 EOF
 chmod +x /tmp/fluxbox-home/.fluxbox/startup
@@ -61,7 +75,7 @@ done
 if [[ "$browser_up" -ne 1 ]]; then
   echo "browser failed to start" >&2
   cat /tmp/rakazo/browser.log >&2 || true
-  xterm -geometry 100x28+48+48 -bg "#111113" -fg "#E8E8EA" -cr "#E8E8EA" -title "Terminal" >/tmp/rakazo/xterm.log 2>&1 &
+  xterm -geometry 100x28+48+48 -bg "#0D0D0E" -fg "#E8E8EA" -cr "#E8E8EA" -title "Terminal" >/tmp/rakazo/xterm.log 2>&1 &
 fi
 
 x11vnc -display :1 -forever -shared -viewonly -nopw -listen 127.0.0.1 -rfbport 5900 -xkb -ncache 0 >/tmp/rakazo/x11vnc.log 2>&1 &
@@ -76,6 +90,10 @@ if [[ ! -f "$NOVNC_ROOT/embed.html" ]]; then
   exit 1
 fi
 websockify --web="$NOVNC_ROOT" 0.0.0.0:6080 127.0.0.1:5900 >/tmp/rakazo/novnc.log 2>&1 &
+
+# Record a health snapshot once everything is up, so a bot hitting an
+# unexplained failure can read why instead of retrying blind.
+rakazo-doctor >/tmp/rakazo/doctor.log 2>&1 || true
 
 while kill -0 "$XVFB_PID" 2>/dev/null; do
   sleep 2

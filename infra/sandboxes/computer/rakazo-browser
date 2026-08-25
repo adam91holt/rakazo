@@ -3,6 +3,19 @@ set -eu
 RAKAZO_HOME="${HOME:-/home/rakazo}"
 PROFILE="$RAKAZO_HOME/.browser-profiles/chromium"
 mkdir -p "$PROFILE"
+# The profile lives in the bot's persisted home, so a container that stopped
+# uncleanly leaves a singleton lock naming a host that no longer exists.
+# Chromium then refuses to start and the desktop comes up blank until someone
+# clears it by hand. Nothing else shares this profile, so if no chromium is
+# running the lock is stale by definition.
+if ! pgrep -x chromium >/dev/null 2>&1 && ! pgrep -x chromium-browser >/dev/null 2>&1; then
+  rm -f "$PROFILE/SingletonLock" "$PROFILE/SingletonCookie" "$PROFILE/SingletonSocket"
+fi
+
+# --test-type suppresses the yellow "unsupported command-line flag: --no-sandbox"
+# infobar, which otherwise sits across the top of every screenshot the model
+# takes. --hide-crash-restore-bubble stops the persisted profile's "Restore
+# pages?" prompt covering the page after an idle stop, which reads as a crash.
 BIN="$(command -v chromium || command -v chromium-browser || true)"
 if [ -z "$BIN" ]; then
   echo "chromium is not installed" >&2
@@ -16,6 +29,8 @@ exec "$BIN" \
   --no-first-run \
   --no-default-browser-check \
   --disable-session-crashed-bubble \
+  --test-type \
+  --hide-crash-restore-bubble \
   --password-store=basic \
   --user-data-dir="$PROFILE" \
   --start-maximized \

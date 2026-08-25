@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Probes the handful of things that break this computer quietly. Runs once at
+# startup and on demand, so a bot hitting an unexplained failure can ask the
+# computer what is wrong instead of guessing and retrying into the tool-repeat
+# guard. One PASS/FAIL line per check, then a summary.
+set -uo pipefail
+export DISPLAY="${DISPLAY:-:1}"
+failed=0
+
+check() {
+  local name="$1" detail="$2" ok="$3"
+  if [[ "$ok" -eq 0 ]]; then
+    echo "[rakazo-doctor] PASS ${name}: ${detail}"
+  else
+    echo "[rakazo-doctor] FAIL ${name}: ${detail}"
+    failed=$((failed + 1))
+  fi
+}
+
+# Egress, split so a DNS failure is not reported as a dead network.
+if getent hosts example.com >/dev/null 2>&1; then
+  check dns "resolves example.com" 0
+else
+  check dns "cannot resolve example.com — the container has no working resolver" 1
+fi
+
+if curl -sS --max-time 10 -o /dev/null -w '%{http_code}' https://example.com 2>/dev/null | grep -q '^2'; then
+  check egress "https reachable via curl" 0
+else
+  check egress "cannot reach https://example.com — outbound network is blocked or down" 1
+fi
+
+# The tools a bot reaches for first. Missing ones send it down a retry loop.
+missing=""
+for tool in curl wget jq git python3 node bun uv rg fd; do
+  command -v "$tool" >/dev/null 2>&1 || missing="${missing} ${tool}"
+done
+if [[ -z "$missing" ]]; then
+  check tools "curl wget jq git python3 node bun uv rg fd all present" 0
+else
+  check tools "missing:${missing}" 1
+fi
+
+# Desktop. The Computer tools are useless without these.
+if xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+  res="$(xdpyinfo -display "$DISPLAY" 2>/dev/null | awk '/dimensions:/ {print $2; exit}')"
+  check display "X server up on ${DISPLAY} at ${res:-unknown}" 0
+else
+  check display "no X server on ${DISPLAY} — see /tmp/rakazo/xvfb.log" 1
+fi
+
+if chromium --version >/dev/null 2>&1; then
+  check browser "$(chromium --version 2>/dev/null | head -1)" 0
+else
+  check browser "chromium will not report a version — launch it with rakazo-browser, never a raw binary" 1
+fi
+
+profile="${HOME:-/home/rakazo}/.browser-profiles/chromium"
+if [[ -e "$profile/SingletonLock" ]] && ! pgrep -x chromium >/dev/null 2>&1; then
+  check browserlock "stale singleton lock in $profile with no chromium running — rakazo-browser clears it on next launch" 1
+else
+  check browserlock "no stale profile lock" 0
+fi
+
+if pgrep -x fluxbox >/dev/null 2>&1; then
+  check windowmanager "fluxbox running" 0
+else
+  check windowmanager "fluxbox is not running — windows will not be managed; see /tmp/rakazo/fluxbox.log" 1
+fi
+
+# Quiet breakages that look like something else.
+if [[ -s /etc/machine-id ]]; then
+  check machineid "present" 0
+else
+  check machineid "empty or missing — D-Bus and some browser features fail oddly without it" 1
+fi
+
+if [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
+  check dbus "session bus configured" 0
+else
+  check dbus "no session bus — some desktop apps hang on start" 1
+fi
+
+now_year="$(date -u +%Y)"
+if [[ "$now_year" -ge 2024 ]]; then
+  check clock "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" 0
+else
+  check clock "system clock reads ${now_year}; TLS will fail against valid certificates" 1
+fi
+
+home_writable=1
+[[ -w "${HOME:-/home/rakazo}" ]] && home_writable=0
+check workspace "${HOME:-/home/rakazo} $([[ $home_writable -eq 0 ]] && echo writable || echo 'NOT writable')" "$home_writable"
+
+if [[ "$failed" -eq 0 ]]; then
+  echo "[rakazo-doctor] SUMMARY all checks passed"
+else
+  echo "[rakazo-doctor] SUMMARY ${failed} check(s) failed"
+fi
+exit 0

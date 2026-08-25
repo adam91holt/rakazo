@@ -1,10 +1,12 @@
 session.menuFile: /tmp/fluxbox-home/.fluxbox/menu
-session.screen0.rootCommand: xsetroot -solid #111113
-session.screen0.toolbar.visible: true
-session.screen0.toolbar.height: 28
-session.screen0.toolbar.placement: BottomCenter
-session.screen0.toolbar.widthPercent: 100
+session.styleFile: /etc/rakazo/fluxbox/style
+session.screen0.rootCommand: xsetroot -solid #0D0D0E
+! The toolbar is chrome the bot never uses and the viewer always sees.
+session.screen0.toolbar.visible: false
 session.screen0.workspaces: 1
 session.screen0.fullMaximization: true
 session.screen0.window.focus.alpha: 255
+session.screen0.defaultDeco: NONE
+session.screen0.tabs.usePixmap: false
+session.screen0.tab.placement: None
 session.overlay.menuDelay: 0
