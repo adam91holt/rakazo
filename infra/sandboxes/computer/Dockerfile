@@ -10,14 +10,51 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     imagemagick \
     novnc \
     websockify \
-    python3 \
-    ca-certificates \
-    procps \
-    bash \
+    dbus-x11 \
     chromium \
     fonts-liberation \
     fonts-dejavu-core \
-    dbus-x11 \
+    procps \
+    psmisc \
+    bash \
+    ca-certificates \
+    gnupg \
+    # Fetching: a bot with no HTTP client falls back to driving the browser by
+    # hand, which is slow and loops. wget was only ever present transitively.
+    curl \
+    wget \
+    openssh-client \
+    rsync \
+    dnsutils \
+    iputils-ping \
+    netcat-openbsd \
+    # Reading and reshaping what it fetched.
+    jq \
+    sqlite3 \
+    ripgrep \
+    fd-find \
+    file \
+    tree \
+    less \
+    # Archives.
+    unzip \
+    zip \
+    xz-utils \
+    bzip2 \
+    # Editing in place, for the times write_file is the wrong shape.
+    nano \
+    vim-tiny \
+    # Version control and runtimes.
+    git \
+    git-lfs \
+    python3 \
+    python3-pip \
+    python3-venv \
+    nodejs \
+    npm \
+    build-essential \
+    # Media work the graphical tools cannot do headlessly.
+    ffmpeg \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /etc/rakazo/fluxbox \
   && printf '%s\n' '#!/bin/sh' 'exec xsetroot -solid "#111113" "$@"' > /usr/bin/fbsetbg \
