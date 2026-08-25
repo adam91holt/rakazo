@@ -232,11 +232,16 @@ export const builtinAgentTools: ConnectorTool[] = [
   },
   {
     name: "remember",
-    description: "Store a durable fact in this bot's explicit memory.",
+    description:
+      "Record one durable fact in this bot's memory, or forget one. Facts accumulate: recording a new one keeps everything already remembered, and repeating a known fact changes nothing. Keep each to a single sentence.",
     inputSchema: {
       type: "object",
       properties: {
         content: { type: "string" },
+        forget: {
+          type: "boolean",
+          description: "Remove the fact matching content instead of recording it.",
+        },
         path: { type: "string" },
       },
       required: ["content"],

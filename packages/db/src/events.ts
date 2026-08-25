@@ -677,11 +677,19 @@ export async function finalizeRun(
     });
     if (task.count !== 1) throw new Error("Run task was not available to finalize");
 
-    if (input.outcome === "completed") {
+    // A failed run used to write nothing at all, and the progress rows it had
+    // already shown were deleted below — so a turn that narrated for minutes and
+    // then hit an error left an idle-looking bot and no explanation. Record the
+    // failure in the thread as a note rather than as something the bot said.
+    const closingBlocks: MessageBlock[] =
+      input.outcome === "completed"
+        ? input.blocks
+        : [{ kind: "meta", text: `This run stopped: ${input.error}` }];
+    {
       const message = await createThreadMessageInTransaction(tx, {
         threadId: input.threadId,
-        role: "bot",
-        blocks: input.blocks,
+        role: input.outcome === "completed" ? "bot" : "system",
+        blocks: closingBlocks,
         botId: input.botId,
         runId: input.runId,
       });
@@ -691,7 +699,11 @@ export async function finalizeRun(
         botId: input.botId,
         type: "thread.message.created",
         runId: input.runId,
-        payload: { messageId: message.id, role: "bot", blocks: input.blocks },
+        payload: {
+          messageId: message.id,
+          role: input.outcome === "completed" ? "bot" : "system",
+          blocks: closingBlocks,
+        },
       });
     }
     const lastEvent = await appendEventInTransaction(tx, {

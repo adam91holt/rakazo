@@ -32,6 +32,7 @@ import {
   containsSecret,
   createStreamingRedactor,
   endsSentence,
+  forgetFact,
   formatSkillRunPrompt,
   humanizeToolName,
   inferAttachmentMimeType,
@@ -40,6 +41,7 @@ import {
   nextFence,
   promptInvokesSkill,
   redactSecrets,
+  rememberFact,
   renderBotDirectory,
   resolveActionApproval,
   sandboxCommandTimeoutMs,
@@ -185,6 +187,10 @@ const BUILTIN_AGENT_TOOL_NAMES = new Set(builtinAgentTools.map((tool) => tool.na
 
 /** Cap the roster so a large workspace cannot flood the prompt. */
 const BOT_DIRECTORY_LIMIT = 40;
+
+function isBotId(id: string | null): id is string {
+  return typeof id === "string" && id.length > 0;
+}
 
 export interface ExecutorDeps {
   prisma: PrismaClient;
@@ -520,7 +526,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
             where: { threadId: run.threadId },
             orderBy: { seq: "desc" },
             take: LEGACY_HISTORY_WINDOW_SIZE,
-            select: { id: true, seq: true, role: true, runId: true, blocks: true },
+            select: { id: true, seq: true, role: true, runId: true, blocks: true, botId: true },
           }),
           deps.prisma.task.findUniqueOrThrow({ where: { id: run.taskId } }),
           deps.prisma.connection.findMany({
@@ -607,14 +613,34 @@ export function createRunExecutor(deps: ExecutorDeps) {
         const discoveredPromise = deps.connector
           ? deps.connector.discoverTools(context)
           : Promise.resolve([]);
-        const visibleMessages = [...messages].reverse().map((m) => ({
-          seq: m.seq,
-          role: (m.role === "user" ? "user" : m.role === "system" ? "system" : "assistant") as
-            | "user"
-            | "assistant"
-            | "system",
-          content: blocksToAgentHistoryText(m.blocks as MessageBlock[]),
-        }));
+        // In a shared thread every bot's message would otherwise arrive as this
+        // bot's own prior turn, so it reads a peer's claims as things it said
+        // and continues plans it never made. Name the speaker instead.
+        const groupSpeakers = thread.groupId
+          ? new Map(
+              (
+                await deps.prisma.bot.findMany({
+                  where: { id: { in: [...new Set(messages.map((m) => m.botId))].filter(isBotId) } },
+                  select: { id: true, name: true },
+                })
+              ).map((peer) => [peer.id, peer.name]),
+            )
+          : undefined;
+        const visibleMessages = [...messages].reverse().map((m) => {
+          const content = blocksToAgentHistoryText(m.blocks as MessageBlock[]);
+          const speaker = groupSpeakers && m.botId ? groupSpeakers.get(m.botId) : undefined;
+          return {
+            seq: m.seq,
+            role: (m.role === "user" ? "user" : m.role === "system" ? "system" : "assistant") as
+              | "user"
+              | "assistant"
+              | "system",
+            content:
+              speaker && content
+                ? `${speaker}${m.botId === bot.id ? " (you)" : ""}: ${content}`
+                : content,
+          };
+        });
         const compactedHistory = selectCompactedHistory({
           messages: visibleMessages,
           summary: thread.historyCompactionSummary,
@@ -1204,18 +1230,44 @@ export function createRunExecutor(deps: ExecutorDeps) {
             }, finish);
           }
           if (name === "remember") {
+            // commit() writes the document wholesale, so passing the fact
+            // straight through replaced everything the bot had ever learned.
+            // Append it to what is already there instead.
+            const path = String(args.path ?? "MEMORY.md");
+            const existing = await deps.memory.read({ scope: "bot", botId: bot.id, path }, context);
+            const document = existing.documents.find((entry) => entry.path === path)?.content ?? "";
+            const forget = args.forget === true || String(args.action ?? "") === "forget";
+            const fact = String(args.content ?? "");
+            if (forget) {
+              const without = forgetFact(document, fact);
+              if (without === null) return finish({ ok: true, forgotten: false });
+              await deps.memory.commit(
+                {
+                  scope: "bot",
+                  botId: bot.id,
+                  path,
+                  content: without,
+                  sourceRunId: runId,
+                  sourceThreadId: thread.id,
+                },
+                context,
+              );
+              return finish({ ok: true, forgotten: true });
+            }
+            const updated = rememberFact(document, fact, new Date().toISOString().slice(0, 10));
+            if (!updated.added) return finish({ ok: true, alreadyKnown: true });
             await deps.memory.commit(
               {
                 scope: "bot",
                 botId: bot.id,
-                path: String(args.path ?? "MEMORY.md"),
-                content: String(args.content ?? ""),
+                path,
+                content: updated.content,
                 sourceRunId: runId,
                 sourceThreadId: thread.id,
               },
               context,
             );
-            return finish({ ok: true });
+            return finish({ ok: true, remembered: true });
           }
           if (name === "schedule_create") {
             const created = await createScheduleFromTool(deps, {
