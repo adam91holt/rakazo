@@ -208,9 +208,7 @@ export function ensureScreenCommand(index: number, screenId?: string) {
   // left over from a failed attempt bound to the port with nothing behind it —
   // all of which the viewer shows as an unexplained black screen, and which the
   // next attempt would then treat as ready.
-  return [
-    `mkdir -p /tmp/rakazo ${profile}`,
-    ...(recordOwner ? [recordOwner] : []),
+  const body = [
     // X server
     `if ! xdpyinfo -display ${layout.display} >/dev/null 2>&1; then`,
     `  rm -f /tmp/.X${layout.displayNumber}-lock /tmp/.X11-unix/X${layout.displayNumber}`,
@@ -248,8 +246,21 @@ export function ensureScreenCommand(index: number, screenId?: string) {
     `for i in $(seq 1 50); do (echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1 && break; sleep 0.1; done`,
     `(echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1 || exit 1`,
     `pgrep -f "x11vnc -display ${layout.display} " >/dev/null 2>&1 || exit 1`,
-    `DISPLAY=${layout.display} xdotool search --onlyvisible --class chromium >/dev/null 2>&1 || exit 1`,
+    // The window manager and browser are started above but not required here.
+    // A desktop takes seconds to come up and several starting at once take
+    // longer; failing on it returned no screen at all, when what the viewer
+    // wants is the screen it can already stream, filling in as it loads.
+    `DISPLAY=${layout.display} xdotool search --onlyvisible --class chromium >/dev/null 2>&1 || echo "screen ${layout.display}: still starting its desktop" >&2`,
     `exit 0`,
+  ].join("\n");
+  // Two callers can ask for the same screen at once — a run starting while the
+  // panel opens, say. Unserialised they both find each piece missing and start
+  // a second x11vnc and websockify on ports the first already holds, and the
+  // duplicates fight over the same display.
+  return [
+    `mkdir -p /tmp/rakazo ${profile}`,
+    ...(recordOwner ? [recordOwner] : []),
+    `flock -w 120 /tmp/rakazo/screen-${layout.displayNumber}.lock bash -c ${shellQuote(body)}`,
   ].join("\n");
 }
 

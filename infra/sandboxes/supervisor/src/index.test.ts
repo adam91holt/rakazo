@@ -172,9 +172,13 @@ describe("sandbox supervisor input containment", () => {
     // The old command exited as soon as xdpyinfo succeeded, so a display left
     // without a window manager or browser stayed black and every retry agreed.
     expect(command).not.toMatch(/xdpyinfo -display :2 >\/dev\/null 2>&1 && exit 0/);
-    // It has to prove the whole chain before reporting success.
+    // It has to prove the screen can actually be streamed before reporting
+    // success: a display alone is what left the viewer looking at nothing.
     expect(command).toContain('pgrep -f "x11vnc -display :2 " >/dev/null 2>&1 || exit 1');
-    expect(command).toContain(
+    expect(command).toContain("(echo >/dev/tcp/127.0.0.1/6082) >/dev/null 2>&1 || exit 1");
+    // The browser is deliberately not part of that gate — a desktop still
+    // coming up should stream as it loads rather than return no screen.
+    expect(command).not.toContain(
       "DISPLAY=:2 xdotool search --onlyvisible --class chromium >/dev/null 2>&1 || exit 1",
     );
   });
@@ -224,6 +228,15 @@ describe("sandbox supervisor input containment", () => {
     expect(command).toContain("DISPLAY=:2");
     // fluxbox is gone; killing it left the real desktop running on every release.
     expect(command).not.toContain("fluxbox");
+  });
+
+  it("serialises concurrent starts of the same screen", () => {
+    const command = ensureScreenCommand(1);
+    // Without this, two callers each find every piece missing and start a
+    // second x11vnc and websockify on ports the first already holds.
+    expect(command).toContain("flock -w 120 /tmp/rakazo/screen-2.lock");
+    // The owner is recorded outside the lock so a waiter still claims the slot.
+    expect(command.indexOf("mkdir -p /tmp/rakazo")).toBeLessThan(command.indexOf("flock"));
   });
 
   it("detects a window manager by xprop's output, not its exit code", () => {
