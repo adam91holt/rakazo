@@ -32,6 +32,7 @@ import {
   attachmentsForThread,
   cronFromPreset,
   defaultCronPreset,
+  describeRunStatus,
   formatCron,
   groupBotsForSidebar,
   hasMentionToken,
@@ -1435,7 +1436,7 @@ export function ShellPage() {
                           {bot.unread ? <span className="sr-only"> (unread)</span> : null}
                         </span>
                         <span className="flex shrink-0 items-center gap-1.5 text-[12.5px] text-[#6C6C70]">
-                          {bot.status === "idle" ? "" : bot.status}
+                          {describeRunStatus(bot.status)}
                           {bot.unread ? (
                             <span
                               aria-hidden="true"

@@ -1,6 +1,6 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { assertTransition, canTransition } from "./run-state.js";
+import { assertTransition, canTransition, describeRunStatus, isBotWorking } from "./run-state.js";
 
 describe("run state machine", () => {
   it("allows takeover resume onto a lease", () => {
@@ -28,5 +28,26 @@ describe("run state machine", () => {
         },
       ),
     );
+  });
+});
+
+describe("what the person is shown", () => {
+  it("does not draw a bot waiting on the person as working", () => {
+    // Both statuses are "active", but the bot is stalled on an unanswered
+    // question — spinning it like one burning tokens hides that.
+    expect(isBotWorking("running")).toBe(true);
+    expect(isBotWorking("waiting_input")).toBe(false);
+    expect(isBotWorking("waiting_takeover")).toBe(false);
+    expect(isBotWorking("idle")).toBe(false);
+    expect(isBotWorking(undefined)).toBe(false);
+  });
+
+  it("says what a status means instead of printing the database word", () => {
+    expect(describeRunStatus("waiting_input")).toBe("Waiting for you");
+    expect(describeRunStatus("running")).toBe("Working");
+    // Lease bookkeeping is not news to anyone.
+    expect(describeRunStatus("leased")).toBe("");
+    expect(describeRunStatus("queued")).toBe("");
+    expect(describeRunStatus("idle")).toBe("");
   });
 });
