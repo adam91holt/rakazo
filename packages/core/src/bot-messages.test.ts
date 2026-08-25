@@ -127,6 +127,14 @@ describe("inbound wake prompt", () => {
   });
 
   it("does not demand a reply for an FYI", () => {
-    expect(prompt).toContain("staying silent is fine");
+    expect(prompt).toContain("say nothing");
+  });
+
+  it("rules out the acknowledgement replies bots actually send", () => {
+    // A bot answered one message with three "Received — starting now" replies
+    // before the real answer; "reply only if useful" was too soft to stop it.
+    expect(prompt).toContain("Reply at most once");
+    expect(prompt).toContain("Confirming receipt");
+    expect(prompt).toContain("saying you have started");
   });
 });

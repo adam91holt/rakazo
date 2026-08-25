@@ -42,7 +42,10 @@ const AGENT_TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const MAX_AGENT_TOOL_NAME_LENGTH = 64;
 const FALLBACK_AGENT_TOOL_NAME = "connector_tool";
 // Bound runaway agent loops before they can issue unbounded billable tool calls.
-const MAX_TOOL_CALLS_PER_TURN = 80;
+// Real research turns already run to a third of this — driving a browser costs
+// roughly one call per interaction — so it is set well above genuine work and
+// only catches a loop the repeated-tool guards did not.
+export const MAX_TOOL_CALLS_PER_TURN = 400;
 
 export class PiAgentRuntime implements AgentRuntime {
   describe() {

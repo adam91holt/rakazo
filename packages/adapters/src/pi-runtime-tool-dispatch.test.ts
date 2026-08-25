@@ -47,7 +47,7 @@ vi.mock("@earendil-works/pi-agent-core", () => ({
 
       const shell = this.tools.find((tool) => tool.name === "shell");
       if (!shell) throw new Error("shell was not exposed to the subagent");
-      for (let index = 0; index < 100; index += 1) {
+      for (let index = 0; index < MAX_TOOL_CALLS_PER_TURN + 20; index += 1) {
         const args = { command: `echo ${index}` };
         this.emit({ type: "tool_execution_start", toolName: shell.name, args });
         if (this.aborted) break;
@@ -88,7 +88,7 @@ vi.mock("./pi-openai-compatible-provider.js", () => ({
   registerOpenAiCompatibleRuntime: (models: unknown) => models,
 }));
 
-import { PiAgentRuntime } from "./pi-runtime.js";
+import { MAX_TOOL_CALLS_PER_TURN, PiAgentRuntime } from "./pi-runtime.js";
 
 const destinationTool: ConnectorTool = {
   name: "destination.write",
@@ -187,11 +187,12 @@ describe("Pi connector tool dispatch", () => {
       events.push(event);
     }
 
-    expect(executeTool).toHaveBeenCalledTimes(79);
+    // Derived from the constant so the budget and its test cannot drift apart.
+    expect(executeTool).toHaveBeenCalledTimes(MAX_TOOL_CALLS_PER_TURN - 1);
     expect(fakeAgentState.abortCount).toBeGreaterThanOrEqual(2);
     expect(events).toContainEqual({
       type: "progress",
-      text: "Stopped: more than 80 tool calls in one turn.",
+      text: `Stopped: more than ${MAX_TOOL_CALLS_PER_TURN} tool calls in one turn.`,
     });
   });
 });

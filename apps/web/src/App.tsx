@@ -23,6 +23,30 @@ export function App() {
     markOnce("rk:renderer:session-committed");
     markAfterPaint("rk:renderer:session-painted");
   }, [session.isPending]);
+
+  // Better Auth stops polling once a lookup has concluded there is no session
+  // (`shouldPollSession` requires data), so a 401 that was only momentary — the
+  // API restarting mid-request — strands a signed-in person on the sign-in page
+  // with a valid cookie and nothing left to re-check it. Re-check on focus and
+  // occasionally while unauthenticated; a genuine sign-out just answers 401
+  // again.
+  const signedOut = sessionGate(session) === "anonymous";
+  const refetchSession = session.refetch;
+  useEffect(() => {
+    if (!signedOut) return;
+    const recheck = () => {
+      if (document.visibilityState === "visible") void refetchSession().catch(() => undefined);
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    const timer = window.setInterval(recheck, 30_000);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+      window.clearInterval(timer);
+    };
+  }, [signedOut, refetchSession]);
+
   if (session.isPending && !session.data) {
     return window.location.pathname.startsWith("/app") ? (
       <ShellSkeleton />

@@ -87,6 +87,7 @@ export function buildBotMessageWakePrompt(args: { from: BotAddress; text: string
     escapePromptData(args.text),
     "</bot_message>",
     "",
-    `If it needs a reply or an action, handle it: reply to ${name} with message_bot using bot_id ${id}. That reaches them on a later turn, not as a live back-and-forth. Tell your user only when you have a real result to share. If it is just an FYI with nothing for you to do, staying silent is fine — do not reply only to acknowledge it.`,
+    `If it needs a reply or an action, handle it: reply to ${name} with message_bot using bot_id ${id}. That reaches them on a later turn, not as a live back-and-forth. Tell your user only when you have a real result to share.`,
+    `Reply at most once, and only with something ${name} does not already know. Confirming receipt, restating the request, or saying you have started is not worth a message — ${name} already knows it asked. If there is nothing to add yet, do the work and reply when you have the answer; if there is nothing to do at all, say nothing.`,
   ].join("\n");
 }

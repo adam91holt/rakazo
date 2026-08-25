@@ -704,12 +704,86 @@ export async function finalizeRun(
     });
     await tx.event.deleteMany({ where: { runId: input.runId, type: "thread.progress" } });
     await tx.bot.update({ where: { id: input.botId }, data: { updatedAt: now } });
+    await startPendingUserTurn(tx, input, now);
     return { threadId: lastEvent.threadId, seq: lastEvent.seq };
   });
 
   if (!committed) return false;
   await notifyRealtime(realtime, committed.threadId, committed.seq);
   return true;
+}
+
+/**
+ * A message sent while the bot was busy was recorded without a run, because
+ * only one run per bot may be active. Nothing started it afterwards, so the
+ * message sat in the thread unanswered and the person was left unable to tell
+ * a slow reply from a dropped one. Pick it up as the run that just finished
+ * releases the bot; the reconciler wakes the queued run.
+ */
+async function startPendingUserTurn(
+  tx: Prisma.TransactionClient,
+  input: FinalizeRunInput,
+  now: Date,
+) {
+  const pending = await tx.message.findFirst({
+    where: { threadId: input.threadId, role: "user", runId: null },
+    orderBy: { seq: "desc" },
+    select: { id: true, blocks: true, seq: true },
+  });
+  if (!pending) return;
+
+  const finished = await tx.run.findUnique({
+    where: { id: input.runId },
+    select: { userId: true, sourceMessage: { select: { seq: true } } },
+  });
+  if (!finished) return;
+  // Only messages this run never saw: anything older was part of its own turn.
+  const sourceSeq = finished.sourceMessage?.seq;
+  if (typeof sourceSeq === "number" && pending.seq <= sourceSeq) return;
+
+  const busy = await tx.run.findFirst({
+    where: {
+      botId: input.botId,
+      status: { in: ["running", "queued", "leased"] },
+      id: { not: input.runId },
+    },
+    select: { id: true },
+  });
+  if (busy) return;
+
+  const blocks = Array.isArray(pending.blocks) ? (pending.blocks as Array<{ text?: string }>) : [];
+  const prompt = blocks
+    .map((block) => (typeof block.text === "string" ? block.text : ""))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  if (!prompt) return;
+
+  const task = await tx.task.create({
+    data: {
+      workspaceId: input.workspaceId,
+      botId: input.botId,
+      threadId: input.threadId,
+      userId: finished.userId,
+      prompt,
+      status: "queued",
+      createdAt: now,
+    },
+  });
+  const followUp = await tx.run.create({
+    data: {
+      workspaceId: input.workspaceId,
+      botId: input.botId,
+      threadId: input.threadId,
+      taskId: task.id,
+      userId: finished.userId,
+      status: "queued",
+      trigger: "follow_up",
+      sourceMessageId: pending.id,
+    },
+    select: { id: true },
+  });
+  await tx.message.update({ where: { id: pending.id }, data: { runId: followUp.id } });
 }
 
 export async function appendEventInTransaction(
