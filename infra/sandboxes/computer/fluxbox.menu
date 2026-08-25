@@ -1,4 +1,0 @@
-[begin] (Rakazo)
-  [exec] (Browser) {rakazo-browser}
-  [exec] (Terminal) {xterm -bg #0D0D0E -fg #E8E8EA -cr #E8E8EA -title Terminal}
-[end]

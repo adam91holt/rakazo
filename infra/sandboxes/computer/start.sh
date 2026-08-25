@@ -3,7 +3,7 @@ set -uo pipefail
 export DISPLAY="${DISPLAY:-:1}"
 export HOME="${HOME:-/home/rakazo}"
 AGENT_HOME="$HOME"
-mkdir -p "$AGENT_HOME" "$AGENT_HOME/.local/bin" "$AGENT_HOME/.config" /tmp/rakazo /tmp/.X11-unix /tmp/fluxbox-home
+mkdir -p "$AGENT_HOME" "$AGENT_HOME/.local/bin" "$AGENT_HOME/.config" /tmp/rakazo /tmp/.X11-unix
 # The image cannot bake anything into $AGENT_HOME: it is bind-mounted per bot.
 # Link the reference in on each start so it is there without shadowing files.
 ln -sfn /usr/share/rakazo/reference "$AGENT_HOME/reference" 2>/dev/null || true
@@ -47,17 +47,19 @@ if command -v dbus-launch >/dev/null 2>&1; then
 fi
 
 xsetroot -solid "#0D0D0E" >/dev/null 2>&1 || true
-mkdir -p /tmp/fluxbox-home/.fluxbox
-cp /etc/rakazo/fluxbox/init /tmp/fluxbox-home/.fluxbox/init
-cp /etc/rakazo/fluxbox/apps /tmp/fluxbox-home/.fluxbox/apps 2>/dev/null || true
-cp /etc/rakazo/fluxbox/menu /tmp/fluxbox-home/.fluxbox/menu 2>/dev/null || true
-cat > /tmp/fluxbox-home/.fluxbox/startup <<'EOF'
-#!/bin/sh
-xsetroot -solid "#0D0D0E"
-exec fluxbox -rc /tmp/fluxbox-home/.fluxbox/init
-EOF
-chmod +x /tmp/fluxbox-home/.fluxbox/startup
-HOME=/tmp/fluxbox-home /tmp/fluxbox-home/.fluxbox/startup >/tmp/rakazo/fluxbox.log 2>&1 &
+rakazo-desktop >/tmp/rakazo/desktop.log 2>&1 &
+wm_up=0
+for _ in $(seq 1 60); do
+  if pgrep -x xfwm4 >/dev/null 2>&1; then
+    wm_up=1
+    break
+  fi
+  sleep 0.25
+done
+if [[ "$wm_up" -ne 1 ]]; then
+  echo "window manager failed to start" >&2
+  cat /tmp/rakazo/xfwm4.log >&2 2>/dev/null || true
+fi
 
 HOME="$AGENT_HOME" rakazo-browser >/tmp/rakazo/browser.log 2>&1 &
 browser_up=0
@@ -75,7 +77,7 @@ done
 if [[ "$browser_up" -ne 1 ]]; then
   echo "browser failed to start" >&2
   cat /tmp/rakazo/browser.log >&2 || true
-  xterm -geometry 100x28+48+48 -bg "#0D0D0E" -fg "#E8E8EA" -cr "#E8E8EA" -title "Terminal" >/tmp/rakazo/xterm.log 2>&1 &
+  xfce4-terminal >/tmp/rakazo/terminal.log 2>&1 &
 fi
 
 x11vnc -display :1 -forever -shared -viewonly -nopw -listen 127.0.0.1 -rfbport 5900 -xkb -ncache 0 >/tmp/rakazo/x11vnc.log 2>&1 &

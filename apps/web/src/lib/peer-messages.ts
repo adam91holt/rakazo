@@ -23,6 +23,11 @@ export function isPeerBlock(block: MessageBlock): block is PeerBlock {
   return block.kind === "bot_message_sent" || block.kind === "bot_message_received";
 }
 
+/** True when a message carries nothing but peer traffic, so the thread can drop it. */
+export function isPeerOnlyMessage(message: Pick<ThreadMessage, "blocks">): boolean {
+  return message.blocks.length > 0 && message.blocks.every(isPeerBlock);
+}
+
 export function peerMessagesFrom(messages: readonly ThreadMessage[]): PeerMessage[] {
   const collected: PeerMessage[] = [];
   for (const message of messages) {

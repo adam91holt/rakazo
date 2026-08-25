@@ -62,10 +62,10 @@ else
   check browserlock "no stale profile lock" 0
 fi
 
-if pgrep -x fluxbox >/dev/null 2>&1; then
-  check windowmanager "fluxbox running" 0
+if pgrep -x xfwm4 >/dev/null 2>&1; then
+  check windowmanager "xfwm4 running" 0
 else
-  check windowmanager "fluxbox is not running — windows will not be managed; see /tmp/rakazo/fluxbox.log" 1
+  check windowmanager "xfwm4 is not running — windows will not be managed; see /tmp/rakazo/xfwm4.log" 1
 fi
 
 # Quiet breakages that look like something else.

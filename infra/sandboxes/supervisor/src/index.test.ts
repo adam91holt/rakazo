@@ -166,6 +166,33 @@ describe("sandbox supervisor input containment", () => {
     );
   });
 
+  it("does not call an extra screen ready just because the display answers", () => {
+    const command = ensureScreenCommand(1);
+    // The old command exited as soon as xdpyinfo succeeded, so a display left
+    // without a window manager or browser stayed black and every retry agreed.
+    expect(command).not.toMatch(/xdpyinfo -display :2 >\/dev\/null 2>&1 && exit 0/);
+    // It has to prove the whole chain before reporting success.
+    expect(command).toContain('pgrep -f "x11vnc -display :2 " >/dev/null 2>&1 || exit 1');
+    expect(command).toContain(
+      "DISPLAY=:2 xdotool search --onlyvisible --class chromium >/dev/null 2>&1 || exit 1",
+    );
+  });
+
+  it("starts each piece of an extra screen only when it is missing", () => {
+    const command = ensureScreenCommand(1);
+    expect(command).toContain("if ! xdpyinfo -display :2");
+    expect(command).toContain('if ! pgrep -f "x11vnc -display :2 "');
+    expect(command).toContain('if ! pgrep -f "websockify.*6082 "');
+    // A websockify left from a failed attempt points at a VNC server that is
+    // gone, so it is replaced rather than trusted.
+    expect(command).toContain('pkill -f "websockify.*:6082 "');
+  });
+
+  it("brings up the extra screen with the same desktop as the primary one", () => {
+    expect(ensureScreenCommand(1)).toContain("rakazo-desktop");
+    expect(ensureScreenCommand(1)).not.toContain("fluxbox");
+  });
+
   it("generates syntactically valid shell to start an extra display", () => {
     const result = spawnSync("bash", ["-n"], { input: ensureScreenCommand(1) });
     expect(result.status).toBe(0);

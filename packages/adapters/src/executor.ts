@@ -171,7 +171,9 @@ const MAX_MODEL_FILE_BYTES = 250_000;
 const MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS = 6;
 // Backstop for a stuck agent that varies its arguments each call (so the exact-match cap above
 // never trips) but keeps hammering the same tool without ever narrating progress in between.
-const MAX_CONSECUTIVE_SAME_TOOL_CALLS = 20;
+// Real work legitimately runs long — reading a large tree, driving a desktop, stepping through a
+// build — so this is set well above any plausible task and only catches a runaway.
+const MAX_CONSECUTIVE_SAME_TOOL_CALLS = 200;
 const GRAPHICAL_AGENT_TOOLS = new Set([
   "computer_observe",
   "computer_act",

@@ -94,6 +94,7 @@ import { takeInitialBootstrap } from "../lib/bootstrap";
 import { chartViewport } from "../lib/chart-viewport";
 import { dictation } from "../lib/dictation";
 import { connectMcpOauth } from "../lib/mcp-connect";
+import { isPeerOnlyMessage, peerConversations } from "../lib/peer-messages";
 import { revokePendingAttachmentPreviews } from "../lib/pending-attachments";
 import { markAfterPaint, markOnce } from "../lib/performance";
 import { rpc } from "../lib/rpc";
@@ -880,6 +881,11 @@ export function ShellPage() {
     : snapshot?.botId === active?.id
       ? snapshot
       : null;
+  // The thread no longer shows peer traffic, so the header is how it is reached.
+  const peerCount = useMemo(
+    () => peerConversations(activeSnapshot?.messages ?? []).length,
+    [activeSnapshot?.messages],
+  );
   const activeReplyTarget =
     replyTarget && activeSnapshot?.messages.some((message) => message.id === replyTarget.id)
       ? replyTarget
@@ -1638,6 +1644,21 @@ export function ShellPage() {
             </button>
           </div>
           <div className="flex items-center gap-1">
+            {!inGroup && peerCount > 0 ? (
+              <button
+                type="button"
+                title={`Messages with ${peerCount} other ${peerCount === 1 ? "bot" : "bots"}`}
+                aria-label="Open bot messages"
+                onClick={() => {
+                  setPeerMessagesFocusId(null);
+                  setPeerMessagesOpen(true);
+                }}
+                className="grid h-[30px] min-w-[34px] place-items-center gap-1 rounded-[9px] px-1.5 hover:bg-[#1B1B1E]"
+                style={{ background: peerMessagesOpen ? "#1B1B1E" : "transparent" }}
+              >
+                <span className="text-[13px] text-[#A8A8AD]">↔ {peerCount}</span>
+              </button>
+            ) : null}
             {!inGroup && active ? (
               <button
                 type="button"
@@ -1681,10 +1702,6 @@ export function ShellPage() {
           onOpenBot={openBot}
           onAnswer={answerMessage}
           onReply={setReplyTarget}
-          onOpenPeerMessages={(peerBotId) => {
-            setPeerMessagesFocusId(peerBotId);
-            setPeerMessagesOpen(true);
-          }}
           memberName={resolveTranscriptMemberName}
           onRefresh={refreshActiveThread}
           onBotChanged={refreshBots}
@@ -2419,7 +2436,6 @@ const Transcript = memo(function Transcript({
   onOpenBot,
   onAnswer,
   onReply,
-  onOpenPeerMessages,
   memberName,
   onRefresh,
   onBotChanged,
@@ -2439,7 +2455,6 @@ const Transcript = memo(function Transcript({
   onOpenBot: (botId: string) => void;
   onAnswer: (message: ThreadMessage, text: string) => Promise<void>;
   onReply: (message: ThreadMessage) => void;
-  onOpenPeerMessages: (peerBotId: string) => void;
   memberName?: (botId: string | undefined) => string | undefined;
   onRefresh: () => Promise<void>;
   onBotChanged: () => Promise<void>;
@@ -2448,6 +2463,12 @@ const Transcript = memo(function Transcript({
   speakingMessageId: string | null;
   onSpeak: (message: ThreadMessage) => void;
 }) {
+  // Peer traffic is the bots working, not the conversation the user is having,
+  // so it stays out of the thread and lives in the peer-messages view instead.
+  const visibleMessages = useMemo(
+    () => messages.filter((message) => !isPeerOnlyMessage(message)),
+    [messages],
+  );
   const messageById = useMemo(
     () => new Map(messages.map((message) => [message.id, message])),
     [messages],
@@ -2468,7 +2489,7 @@ const Transcript = memo(function Transcript({
           {loadingOlder ? "Loading…" : "Load earlier messages"}
         </button>
       ) : null}
-      {messages.map((message) => (
+      {visibleMessages.map((message) => (
         <div key={message.id} data-message-id={message.id} className="group/message relative">
           <button
             type="button"
@@ -2483,7 +2504,6 @@ const Transcript = memo(function Transcript({
             message={message}
             canAnswer={message.id === answerableAskMessageId}
             onOpenBot={onOpenBot}
-            onOpenPeerMessages={onOpenPeerMessages}
             onAnswer={onAnswer}
             speakerName={message.role === "bot" ? memberName?.(message.botId) : undefined}
             memberName={memberName}
@@ -2872,7 +2892,6 @@ const MessageView = memo(function MessageView({
   message,
   onAnswer,
   onOpenBot,
-  onOpenPeerMessages,
   speakerName,
   memberName,
   replyPreview,
@@ -2888,7 +2907,6 @@ const MessageView = memo(function MessageView({
   message: ThreadMessage;
   onAnswer: (message: ThreadMessage, text: string) => Promise<void>;
   onOpenBot: (botId: string) => void;
-  onOpenPeerMessages: (peerBotId: string) => void;
   speakerName?: string;
   memberName?: (botId: string | undefined) => string | undefined;
   replyPreview?: ThreadMessage;
@@ -2988,22 +3006,8 @@ const MessageView = memo(function MessageView({
           );
         }
         if (block.kind === "bot_message_sent" || block.kind === "bot_message_received") {
-          const sent = block.kind === "bot_message_sent";
-          const peer = sent ? block.toBotName : block.fromBotName;
-          const peerBotId = sent ? block.toBotId : block.fromBotId;
-          const label = sent ? `Messaged ${peer}` : `Message from ${peer}`;
-          return (
-            <button
-              key={i}
-              type="button"
-              aria-label={label}
-              onClick={() => onOpenPeerMessages(peerBotId)}
-              className="flex items-center justify-center gap-2 self-center rounded-full border border-[#26262A] px-3 py-1 text-[13px] text-[#85858A] hover:bg-[#161618]"
-            >
-              <span aria-hidden>↔</span>
-              <span>{label}</span>
-            </button>
-          );
+          // Shown in the peer-messages view, not inline.
+          return null;
         }
         if (block.kind === "meta") {
           return (

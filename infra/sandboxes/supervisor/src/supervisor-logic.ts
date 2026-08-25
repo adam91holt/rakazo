@@ -160,26 +160,52 @@ export function ensureScreenCommand(index: number) {
   if (index === 0) {
     return `for i in $(seq 1 100); do xdpyinfo -display ${layout.display} >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1`;
   }
-  const fluxHome = `/tmp/fluxbox-home-${layout.displayNumber}`;
   const log = `/tmp/rakazo/screen-${layout.displayNumber}`;
   const profile = `/home/rakazo/.browser-profiles/chromium-screen-${layout.displayNumber}`;
+  // Every piece is started only if its own process is missing, and the command
+  // succeeds only once the whole chain is up. Exiting early because the display
+  // answers leaves a screen with no window manager, no browser, or a websockify
+  // left over from a failed attempt bound to the port with nothing behind it —
+  // all of which the viewer shows as an unexplained black screen, and which the
+  // next attempt would then treat as ready.
   return [
-    `xdpyinfo -display ${layout.display} >/dev/null 2>&1 && exit 0 || true`,
-    `mkdir -p /tmp/rakazo ${fluxHome}/.fluxbox /tmp/.X11-unix ${profile}`,
-    `rm -f /tmp/.X${layout.displayNumber}-lock /tmp/.X11-unix/X${layout.displayNumber}`,
-    `Xvfb ${layout.display} -screen 0 1280x800x24 -ac +extension RANDR +render -noreset >${log}-xvfb.log 2>&1 &`,
-    `for i in $(seq 1 100); do xdpyinfo -display ${layout.display} >/dev/null 2>&1 && break; sleep 0.1; done`,
+    `mkdir -p /tmp/rakazo ${profile}`,
+    // X server
+    `if ! xdpyinfo -display ${layout.display} >/dev/null 2>&1; then`,
+    `  rm -f /tmp/.X${layout.displayNumber}-lock /tmp/.X11-unix/X${layout.displayNumber}`,
+    `  Xvfb ${layout.display} -screen 0 1280x800x24 -ac +extension RANDR +render -noreset >${log}-xvfb.log 2>&1 &`,
+    `  for i in $(seq 1 100); do xdpyinfo -display ${layout.display} >/dev/null 2>&1 && break; sleep 0.1; done`,
+    `fi`,
     `xdpyinfo -display ${layout.display} >/dev/null 2>&1 || exit 1`,
-    `cp /etc/rakazo/fluxbox/init ${fluxHome}/.fluxbox/init`,
-    `cp /etc/rakazo/fluxbox/apps ${fluxHome}/.fluxbox/apps 2>/dev/null || true`,
-    `cp /etc/rakazo/fluxbox/menu ${fluxHome}/.fluxbox/menu 2>/dev/null || true`,
-    `HOME=${fluxHome} DISPLAY=${layout.display} fluxbox -rc ${fluxHome}/.fluxbox/init >${log}-fluxbox.log 2>&1 &`,
-    `if [ -d /home/rakazo/.browser-profiles/chromium ]; then cp -a /home/rakazo/.browser-profiles/chromium/. ${profile}/; rm -f ${profile}/SingletonLock ${profile}/SingletonCookie ${profile}/SingletonSocket; fi`,
-    `DISPLAY=${layout.display} HOME=/home/rakazo rakazo-browser --user-data-dir=${profile} >${log}-browser.log 2>&1 &`,
-    `x11vnc -display ${layout.display} -forever -shared -viewonly -nopw -listen 127.0.0.1 -rfbport ${layout.viewVncPort} -xkb -ncache 0 >${log}-x11vnc.log 2>&1 &`,
-    `websockify --web=/usr/share/novnc 0.0.0.0:${layout.viewPort} 127.0.0.1:${layout.viewVncPort} >${log}-novnc.log 2>&1 &`,
-    `for i in $(seq 1 50); do (echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1 && exit 0; sleep 0.1; done`,
-    "exit 1",
+    // Window manager
+    `if ! pgrep -f "xfwm4.*${layout.display}" >/dev/null 2>&1 && ! DISPLAY=${layout.display} xprop -root _NET_SUPPORTING_WM_CHECK >/dev/null 2>&1; then`,
+    `  DISPLAY=${layout.display} rakazo-desktop >${log}-desktop.log 2>&1 &`,
+    `  for i in $(seq 1 60); do DISPLAY=${layout.display} xprop -root _NET_SUPPORTING_WM_CHECK >/dev/null 2>&1 && break; sleep 0.25; done`,
+    `fi`,
+    // Browser, on its own profile so it cannot signal the primary screen's instance
+    `if ! DISPLAY=${layout.display} xdotool search --onlyvisible --class chromium >/dev/null 2>&1; then`,
+    `  if [ -d /home/rakazo/.browser-profiles/chromium ] && [ ! -f ${profile}/Local\\ State ]; then cp -a /home/rakazo/.browser-profiles/chromium/. ${profile}/ 2>/dev/null || true; fi`,
+    `  rm -f ${profile}/SingletonLock ${profile}/SingletonCookie ${profile}/SingletonSocket`,
+    `  DISPLAY=${layout.display} HOME=/home/rakazo rakazo-browser --user-data-dir=${profile} >${log}-browser.log 2>&1 &`,
+    `  for i in $(seq 1 80); do DISPLAY=${layout.display} xdotool search --onlyvisible --class chromium >/dev/null 2>&1 && break; sleep 0.25; done`,
+    `fi`,
+    // VNC server for this display
+    `if ! pgrep -f "x11vnc -display ${layout.display} " >/dev/null 2>&1; then`,
+    `  x11vnc -display ${layout.display} -forever -shared -viewonly -nopw -listen 127.0.0.1 -rfbport ${layout.viewVncPort} -xkb -ncache 0 >${log}-x11vnc.log 2>&1 &`,
+    `  sleep 0.5`,
+    `fi`,
+    // Web bridge. A leftover websockify on this port is killed rather than
+    // reused: it may be pointed at a VNC server that no longer exists.
+    `if ! pgrep -f "websockify.*${layout.viewPort} " >/dev/null 2>&1; then`,
+    `  pkill -f "websockify.*:${layout.viewPort} " >/dev/null 2>&1 || true`,
+    `  websockify --web=/usr/share/novnc 0.0.0.0:${layout.viewPort} 127.0.0.1:${layout.viewVncPort} >${log}-novnc.log 2>&1 &`,
+    `fi`,
+    // Only now is the screen actually usable.
+    `for i in $(seq 1 50); do (echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1 && break; sleep 0.1; done`,
+    `(echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1 || exit 1`,
+    `pgrep -f "x11vnc -display ${layout.display} " >/dev/null 2>&1 || exit 1`,
+    `DISPLAY=${layout.display} xdotool search --onlyvisible --class chromium >/dev/null 2>&1 || exit 1`,
+    `exit 0`,
   ].join("\n");
 }
 

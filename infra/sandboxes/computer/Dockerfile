@@ -3,12 +3,20 @@
 FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Desktop the Computer tools drive.
+    # Desktop the Computer tools drive. Xfce rather than a minimal window
+    # manager: models are grounded on conventional desktops, and both the
+    # Anthropic and E2B computer-use environments made the same choice.
     xvfb \
     x11vnc \
-    fluxbox \
-    xterm \
+    xfwm4 \
+    xfdesktop4 \
+    xfce4-panel \
+    xfce4-settings \
+    xfce4-terminal \
+    thunar \
+    xdg-utils \
     xdotool \
+    scrot \
     x11-utils \
     x11-xserver-utils \
     novnc \
@@ -18,6 +26,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     fonts-dejavu-core \
     imagemagick \
+    # Applications. A computer-use agent that can only open a browser cannot
+    # read a PDF it downloaded or edit a file it wrote — the same dead end the
+    # missing HTTP client caused, one layer up.
+    mousepad \
+    evince \
+    ristretto \
     # Fetching. A bot with no HTTP client drives the browser by hand and
     # loops; wget used to be here only as another package's dependency.
     ca-certificates \
@@ -74,9 +88,7 @@ RUN curl -fsSL https://bun.sh/install | bash \
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
   && uv --version
 
-RUN mkdir -p /etc/rakazo/fluxbox /usr/share/rakazo/reference \
-  && printf '%s\n' '#!/bin/sh' 'exec xsetroot -solid "#0D0D0E" "$@"' > /usr/bin/fbsetbg \
-  && chmod +x /usr/bin/fbsetbg \
+RUN mkdir -p /usr/share/rakazo/reference \
   && ln -sfn /bin/true /usr/bin/xmessage
 
 ENV DISPLAY=:1
@@ -85,19 +97,15 @@ WORKDIR /home/rakazo
 COPY start.sh /usr/local/bin/rakazo-computer
 COPY rakazo-browser /usr/local/bin/rakazo-browser
 COPY rakazo-doctor /usr/local/bin/rakazo-doctor
-COPY fluxbox.init /etc/rakazo/fluxbox/init
-COPY fluxbox.apps /etc/rakazo/fluxbox/apps
-COPY fluxbox.menu /etc/rakazo/fluxbox/menu
-COPY fluxbox.style /etc/rakazo/fluxbox/style
+COPY xfce-desktop.sh /usr/local/bin/rakazo-desktop
 # Reference lives outside /home/rakazo: that path is bind-mounted per bot, so
 # anything baked there is hidden at runtime.
 COPY reference/using-this-computer.md /usr/share/rakazo/reference/using-this-computer.md
 COPY embed.html /usr/share/novnc/embed.html
 # Strip CR so shebangs work even if the build context came from a CRLF checkout.
 RUN sed -i 's/\r$//' /usr/local/bin/rakazo-computer /usr/local/bin/rakazo-browser \
-    /usr/local/bin/rakazo-doctor /etc/rakazo/fluxbox/init /etc/rakazo/fluxbox/apps \
-    /etc/rakazo/fluxbox/menu \
+    /usr/local/bin/rakazo-doctor /usr/local/bin/rakazo-desktop \
   && chmod +x /usr/local/bin/rakazo-computer /usr/local/bin/rakazo-browser \
-    /usr/local/bin/rakazo-doctor
+    /usr/local/bin/rakazo-doctor /usr/local/bin/rakazo-desktop
 EXPOSE 6080 6081 6082 6083 6084 6085 6086 6087 6088 6089 6090 6091 6092 6093 6094 6095
 CMD ["/usr/local/bin/rakazo-computer"]
