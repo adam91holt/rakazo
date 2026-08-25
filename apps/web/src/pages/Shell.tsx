@@ -1896,28 +1896,6 @@ export function ShellPage() {
                     </Button>
                   )}
                 </div>
-                <div className="mt-[30px] mb-3 text-[14px] text-[#85858A]">Model</div>
-                <select
-                  aria-label="Model for this bot"
-                  value={active.modelId ? `${active.modelProvider}::${active.modelId}` : ""}
-                  onChange={(event) => void setBotModel(active.id, event.target.value)}
-                  className="w-full rounded-[11px] border border-[#26262A] bg-transparent px-3 py-2.5 text-[14px] text-[#ECECEE]"
-                >
-                  <option value="">Workspace default</option>
-                  {connectedModels.map((entry) => (
-                    <option
-                      key={`${entry.provider}::${entry.id}`}
-                      value={`${entry.provider}::${entry.id}`}
-                    >
-                      {entry.label || entry.id}
-                    </option>
-                  ))}
-                </select>
-                {connectedModels.length === 0 ? (
-                  <p className="mt-2 text-[13px] text-[#6C6C70]">
-                    Connect a model provider to choose one for this bot.
-                  </p>
-                ) : null}
                 <div className="mt-[30px] mb-3 text-[14px] text-[#85858A]">Routines</div>
                 {activeRoutines.map((routine) => (
                   <button
@@ -2013,34 +1991,58 @@ export function ShellPage() {
               />
             ) : null}
             {panel === "settings" && active ? (
-              <BotSettings
-                key={active.id}
-                bot={active}
-                memoryProviderConfigured={memoryProviderConfig != null}
-                onSave={async ({ computerMode, ...patch }) => {
-                  if (computerMode !== active.computerMode) {
-                    await rpc.bots.setComputer({
-                      botId: active.id,
-                      mode: computerMode,
+              <>
+                <div className="mb-3 text-[14px] text-[#85858A]">Model</div>
+                <select
+                  aria-label="Model for this bot"
+                  value={active.modelId ? `${active.modelProvider}::${active.modelId}` : ""}
+                  onChange={(event) => void setBotModel(active.id, event.target.value)}
+                  className="w-full rounded-[11px] border border-[#26262A] bg-transparent px-3 py-2.5 text-[14px] text-[#ECECEE]"
+                >
+                  <option value="">Workspace default</option>
+                  {connectedModels.map((entry) => (
+                    <option
+                      key={`${entry.provider}::${entry.id}`}
+                      value={`${entry.provider}::${entry.id}`}
+                    >
+                      {entry.label || entry.id}
+                    </option>
+                  ))}
+                </select>
+                {connectedModels.length === 0 ? (
+                  <p className="mt-2 text-[13px] text-[#6C6C70]">
+                    Connect a model provider to choose one for this bot.
+                  </p>
+                ) : null}
+                <BotSettings
+                  key={active.id}
+                  bot={active}
+                  memoryProviderConfigured={memoryProviderConfig != null}
+                  onSave={async ({ computerMode, ...patch }) => {
+                    if (computerMode !== active.computerMode) {
+                      await rpc.bots.setComputer({
+                        botId: active.id,
+                        mode: computerMode,
+                      });
+                    }
+                    await rpc.bots.update({ botId: active.id, ...patch });
+                    await refreshBots();
+                  }}
+                  onExport={async () => {
+                    const manifest = await rpc.export.bot({ botId: active.id });
+                    const blob = new Blob([JSON.stringify(manifest, null, 2)], {
+                      type: "application/json",
                     });
-                  }
-                  await rpc.bots.update({ botId: active.id, ...patch });
-                  await refreshBots();
-                }}
-                onExport={async () => {
-                  const manifest = await rpc.export.bot({ botId: active.id });
-                  const blob = new Blob([JSON.stringify(manifest, null, 2)], {
-                    type: "application/json",
-                  });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `${active.name.toLowerCase().replace(/\s+/g, "-")}-export.json`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-                onClear={() => setClearTarget(active)}
-              />
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `${active.name.toLowerCase().replace(/\s+/g, "-")}-export.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  onClear={() => setClearTarget(active)}
+                />
+              </>
             ) : null}
             {panel === "routine" && active ? (
               <div>
