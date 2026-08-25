@@ -13,6 +13,7 @@ import {
   nextScreenIndex,
   normalizeWorkspaceRelative,
   parseObservation,
+  parseScreenOwners,
   releaseAssignedScreen,
   type ScreenAssignment,
   sandboxCommandTimedOut,
@@ -191,6 +192,38 @@ describe("sandbox supervisor input containment", () => {
   it("brings up the extra screen with the same desktop as the primary one", () => {
     expect(ensureScreenCommand(1)).toContain("rakazo-desktop");
     expect(ensureScreenCommand(1)).not.toContain("fluxbox");
+  });
+
+  it("survives a supervisor restart by reading ownership back from the container", () => {
+    // The in-memory map is a cache: losing it while the container keeps its
+    // screens handed a second bot a screen another bot was already using.
+    const owners = parseScreenOwners("0 writer\n1 researcher\n2 analyst\n");
+    expect(owners.get("writer")?.index).toBe(0);
+    expect(owners.get("researcher")?.index).toBe(1);
+    expect(owners.get("analyst")?.index).toBe(2);
+    // A rehydrated map must keep allocating where the container left off.
+    expect(nextScreenIndex(owners, "newcomer")).toBe(3);
+    expect(nextScreenIndex(owners, "researcher")).toBe(1);
+  });
+
+  it("ignores anything the container reports that is not a usable assignment", () => {
+    const owners = parseScreenOwners("0 writer\n\nnonsense\n1\n99 outofrange\n0 duplicate\n");
+    expect([...owners.keys()]).toEqual(["writer"]);
+  });
+
+  it("records the screen's owner where a restart can find it", () => {
+    expect(ensureScreenCommand(1, "researcher")).toContain("/tmp/rakazo/screen-2.owner");
+    expect(ensureScreenCommand(0, "writer")).toContain("/tmp/rakazo/screen-1.owner");
+    // Callers that do not name an owner still work.
+    expect(ensureScreenCommand(1)).not.toContain(".owner");
+  });
+
+  it("stops an extra screen's desktop, which is matched by environment", () => {
+    const command = stopExtraScreenCommand(1);
+    expect(command).toContain("xfwm4");
+    expect(command).toContain("DISPLAY=:2");
+    // fluxbox is gone; killing it left the real desktop running on every release.
+    expect(command).not.toContain("fluxbox");
   });
 
   it("detects a window manager by xprop's output, not its exit code", () => {

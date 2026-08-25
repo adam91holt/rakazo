@@ -29,10 +29,12 @@ import {
   nextScreenIndex,
   normalizeWorkspaceRelative,
   parseObservation,
+  parseScreenOwners,
   releaseAssignedScreen,
   type ScreenAssignment,
   sandboxCommandTimedOut,
   sandboxTimeoutCommand,
+  screenOwnersCommand,
   stopExtraScreenCommand,
   toSandboxInput,
   workspaceTarget,
@@ -561,6 +563,18 @@ async function waitForContainerGone(container: Docker.Container, attempts = 50) 
   throw new Error("timed out waiting for the previous computer container to be removed");
 }
 
+async function readScreenOwners(container: Docker.Container) {
+  try {
+    const listed = await runContainerCommand(container, ["bash", "-lc", screenOwnersCommand()]);
+    if (listed.code !== 0) return new Map<string, ScreenAssignment>();
+    return parseScreenOwners(listed.stdout);
+  } catch {
+    // A container that cannot be asked is treated as owning nothing; the worst
+    // case is the assignment it would have kept, which is what happened before.
+    return new Map<string, ScreenAssignment>();
+  }
+}
+
 async function findBotContainer(botId: string, workspaceId: string) {
   const listed = await docker.listContainers({
     all: true,
@@ -611,12 +625,21 @@ async function managedScreen(
   const { container, info } = await managedContainer(id, botId, workspaceId);
   let assigned = computerScreens.get(id);
   if (!assigned) {
-    assigned = new Map();
+    // This map is a cache, not the record. It is lost whenever the supervisor
+    // restarts while the container keeps its screens running, and inventing a
+    // fresh one hands a second bot a screen another bot is already using. The
+    // container knows who owns what, so ask it.
+    assigned = await readScreenOwners(container);
     computerScreens.set(id, assigned);
   }
-  const index = nextScreenIndex(assigned, screenId || botId || id, screenLeaseId);
+  const owner = screenId || botId || id;
+  const index = nextScreenIndex(assigned, owner, screenLeaseId);
   const layout = screenPorts(index);
-  const ensured = await runContainerCommand(container, ["bash", "-lc", ensureScreenCommand(index)]);
+  const ensured = await runContainerCommand(container, [
+    "bash",
+    "-lc",
+    ensureScreenCommand(index, owner),
+  ]);
   if (ensured.code !== 0) {
     assigned.delete(screenId || botId || id);
     // The script says which step gave up; reporting only a generic sentence

@@ -140,12 +140,16 @@ export function clearComputerScreenRegistry(
 export function stopExtraScreenCommand(index: number) {
   if (index <= 0) return "";
   const layout = screenPorts(index);
-  const fluxHome = `/tmp/fluxbox-home-${layout.displayNumber}`;
   const profile = `/home/rakazo/.browser-profiles/chromium-screen-${layout.displayNumber}`;
   const tokenFile = `/tmp/rakazo/control-token-${layout.displayNumber}`;
   return [
     `pkill -f 'Xvfb ${layout.display} -screen' || true`,
-    `pkill -f 'HOME=${fluxHome} DISPLAY=${layout.display} fluxbox' || true`,
+    // The desktop takes its display from the environment, so it cannot be
+    // matched by argument: kill by the environment of each candidate instead.
+    // Missing this left a released screen's desktop running for the container's
+    // lifetime, and every release leaked another set.
+    `for p in $(pgrep -x xfwm4; pgrep -x xfdesktop; pgrep -x xfce4-panel; pgrep -x xfsettingsd); do grep -qz "DISPLAY=${layout.display}" /proc/$p/environ 2>/dev/null && kill "$p" 2>/dev/null; done || true`,
+    `rm -f ${tokenFile}.owner`,
     `pkill -f -- '--user-data-dir=${profile}' || true`,
     `pkill -f '^x11vnc .* -rfbport ${layout.viewVncPort}' || true`,
     `pkill -f '^x11vnc .* -rfbport ${layout.controlVncPort}' || true`,
@@ -155,10 +159,46 @@ export function stopExtraScreenCommand(index: number) {
   ].join("; ");
 }
 
-export function ensureScreenCommand(index: number) {
+/** Where a screen records who it belongs to, so the assignment outlives the supervisor. */
+export function screenOwnerFile(displayNumber: number) {
+  return `/tmp/rakazo/screen-${displayNumber}.owner`;
+}
+
+/** Lists `<index> <screenId>` for every screen the container currently owns. */
+export function screenOwnersCommand() {
+  return [
+    "for f in /tmp/rakazo/screen-*.owner; do",
+    '  [ -e "$f" ] || continue',
+    // sed rather than shell parameter expansion: the ${...} form reads as a
+    // template placeholder to the linter.
+    `  n=$(basename "$f" .owner | sed 's/^screen-//')`,
+    '  printf "%s %s\n" "$((n - 1))" "$(cat "$f" 2>/dev/null)"',
+    "done",
+  ].join("\n");
+}
+
+/** Rebuilds the assignment map from what the container reports. */
+export function parseScreenOwners(stdout: string): Map<string, ScreenAssignment> {
+  const assigned = new Map<string, ScreenAssignment>();
+  for (const line of stdout.split("\n")) {
+    const [rawIndex, ...rest] = line.trim().split(/\s+/);
+    const index = Number(rawIndex);
+    const screenId = rest.join(" ").trim();
+    if (!screenId || !Number.isInteger(index) || index < 0 || index >= TEAM_SCREEN_LIMIT) continue;
+    if ([...assigned.values()].some((slot) => slot.index === index)) continue;
+    assigned.set(screenId, { index });
+  }
+  return assigned;
+}
+
+export function ensureScreenCommand(index: number, screenId?: string) {
   const layout = screenPorts(index);
+  const recordOwner = screenId
+    ? `mkdir -p /tmp/rakazo; printf %s ${shellQuote(screenId)} > ${screenOwnerFile(layout.displayNumber)}`
+    : undefined;
   if (index === 0) {
-    return `for i in $(seq 1 100); do xdpyinfo -display ${layout.display} >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1`;
+    const wait = `for i in $(seq 1 100); do xdpyinfo -display ${layout.display} >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1`;
+    return recordOwner ? `${recordOwner}\n${wait}` : wait;
   }
   const log = `/tmp/rakazo/screen-${layout.displayNumber}`;
   const profile = `/home/rakazo/.browser-profiles/chromium-screen-${layout.displayNumber}`;
@@ -170,6 +210,7 @@ export function ensureScreenCommand(index: number) {
   // next attempt would then treat as ready.
   return [
     `mkdir -p /tmp/rakazo ${profile}`,
+    ...(recordOwner ? [recordOwner] : []),
     // X server
     `if ! xdpyinfo -display ${layout.display} >/dev/null 2>&1; then`,
     `  rm -f /tmp/.X${layout.displayNumber}-lock /tmp/.X11-unix/X${layout.displayNumber}`,
