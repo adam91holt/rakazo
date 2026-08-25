@@ -404,8 +404,11 @@ export function ShellPage() {
       rpc.threads.get({ botId: id }),
       rpc.routines.list({ botId: id }),
       rpc.skills.list({ botId: id }),
-      refreshComputerScreen(id),
     ]);
+    // Not awaited with the conversation: attaching a screen can have to boot a
+    // whole desktop first, and waiting on that left the messages blank for as
+    // long as it took whenever the computer panel was open.
+    void refreshComputerScreen(id).catch(() => undefined);
     markOnce("rk:renderer:thread-response");
     // The epoch check drops a response that raced a conversation clear, which would otherwise
     // re-apply the deleted messages and cursor over the emptied snapshot.
