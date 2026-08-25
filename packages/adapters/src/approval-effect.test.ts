@@ -40,10 +40,15 @@ describe("resolveDuplicateEffectGate", () => {
   });
 
   it("returns denial without executing", () => {
-    expect(resolveDuplicateEffectGate({ status: "denied" }, "destination.write")).toEqual({
-      action: "return",
-      result: { error: "User denied this action." },
-    });
+    const gate = resolveDuplicateEffectGate({ status: "denied" }, "destination.write");
+    expect(gate.action).toBe("return");
+    // The message has to stop the retry, not merely report the refusal: a bare
+    // "denied" read as transient and the model reissued the call until the
+    // repeated-tool guard ended the turn.
+    const error = (gate as { result: { error: string } }).result.error;
+    expect(error).toContain("declined");
+    expect(error).toContain("Do not retry");
+    expect(error).toMatch(/only they can approve/i);
   });
 
   it("returns paused for intended effects instead of executing", () => {

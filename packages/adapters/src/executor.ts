@@ -188,6 +188,16 @@ const BUILTIN_AGENT_TOOL_NAMES = new Set(builtinAgentTools.map((tool) => tool.na
 /** Cap the roster so a large workspace cannot flood the prompt. */
 const BOT_DIRECTORY_LIMIT = 40;
 
+/** Returns the requested line window, or the whole text when none was asked for. */
+function sliceLines(text: string, offset: number, limit: number): string {
+  if (!Number.isFinite(offset) && !Number.isFinite(limit)) return text;
+  const start = Number.isFinite(offset) && offset > 0 ? Math.floor(offset) - 1 : 0;
+  const count = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : undefined;
+  if (start === 0 && count === undefined) return text;
+  const lines = text.split("\n");
+  return lines.slice(start, count === undefined ? undefined : start + count).join("\n");
+}
+
 function isBotId(id: string | null): id is string {
   return typeof id === "string" && id.length > 0;
 }
@@ -999,7 +1009,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
             } catch (error) {
               if (error instanceof Error && /exceeds \d+ bytes/.test(error.message)) {
                 return {
-                  error: "file is too large for model context",
+                  error: `file is larger than ${MAX_MODEL_FILE_BYTES} bytes. Read part of it with offset and limit, or narrow it first with shell (grep, sed, head).`,
                   path: filePath,
                 };
               }
@@ -1007,15 +1017,21 @@ export function createRunExecutor(deps: ExecutorDeps) {
             }
             if (bytes.byteLength > MAX_MODEL_FILE_BYTES) {
               return {
-                error: "file is too large for model context",
+                error: `file is ${bytes.byteLength} bytes, larger than the ${MAX_MODEL_FILE_BYTES} this tool returns. Read part of it with offset and limit, or narrow it first with shell (grep, sed, head).`,
                 path: filePath,
                 size: bytes.byteLength,
               };
             }
+            const offset = Number(args.offset ?? 0);
+            const limit = Number(args.limit ?? 0);
             try {
               return {
                 path: filePath,
-                content: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+                content: sliceLines(
+                  new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+                  offset,
+                  limit,
+                ),
               };
             } catch {
               return {
@@ -1137,7 +1153,11 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 maxBytes: ATTACHMENT_MAX_BYTES,
               });
             } catch {
-              return finish({ error: "file not found or unreadable", path: filePath });
+              return finish({
+                error:
+                  "file not found or unreadable. Check the path with list_files; relative paths start at your home folder.",
+                path: filePath,
+              });
             }
             const mimeType = inferAttachmentMimeType(filePath);
             if (!mimeType) {

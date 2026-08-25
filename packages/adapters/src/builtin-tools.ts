@@ -64,10 +64,14 @@ export const builtinAgentTools: ConnectorTool[] = [
   {
     name: "read_file",
     description:
-      "Read a UTF-8 text file from this bot's home. On a Team Computer, relative paths use the bot folder and shared/... accesses shared work. Open visual or binary files with open_path instead.",
+      "Read a UTF-8 text file from this bot's home. On a Team Computer, relative paths use the bot folder and shared/... accesses shared work. Open visual or binary files with open_path instead. A file too large to return whole can be read in parts with offset and limit.",
     inputSchema: {
       type: "object",
-      properties: { path: { type: "string" } },
+      properties: {
+        path: { type: "string" },
+        offset: { type: "number", description: "First line to return, 1-based." },
+        limit: { type: "number", description: "How many lines to return from offset." },
+      },
       required: ["path"],
     },
   },

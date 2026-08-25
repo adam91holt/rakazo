@@ -46,7 +46,16 @@ export function resolveDuplicateEffectGate(
     return { action: "return", result: effect.result ?? { duplicate: true } };
   }
   if (effect.status === "denied") {
-    return { action: "return", result: { error: "User denied this action." } };
+    // Saying only that it was denied read as a transient failure, so the model
+    // reissued the same call until the repeated-tool guard ended the turn — the
+    // person who declined then saw a stuck bot rather than an acknowledgement.
+    return {
+      action: "return",
+      result: {
+        error:
+          "The user declined this action. Do not retry it — only they can approve it, and nothing you do will change that within this turn. Do something else, or tell them it was declined and ask what they would prefer.",
+      },
+    };
   }
   if (effect.status === "executing") {
     return { action: "uncertain", toolName };
