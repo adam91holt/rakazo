@@ -60,6 +60,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && printf '%s\n' '#!/bin/sh' 'exec xsetroot -solid "#111113" "$@"' > /usr/bin/fbsetbg \
   && chmod +x /usr/bin/fbsetbg \
   && ln -sfn /bin/true /usr/bin/xmessage
+# Debian ships these under different names than the ones a model reaches for.
+RUN ln -sfn /usr/bin/fdfind /usr/local/bin/fd \
+  && ln -sfn /usr/bin/vi /usr/local/bin/vim
+
 ENV DISPLAY=:1
 ENV HOME=/home/rakazo
 WORKDIR /home/rakazo
