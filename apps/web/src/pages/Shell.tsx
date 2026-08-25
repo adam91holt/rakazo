@@ -94,6 +94,7 @@ import { takeInitialBootstrap } from "../lib/bootstrap";
 import { chartViewport } from "../lib/chart-viewport";
 import { dictation } from "../lib/dictation";
 import { connectMcpOauth } from "../lib/mcp-connect";
+import type { ModelCatalogEntry } from "../lib/model-auth";
 import { isPeerOnlyMessage, peerConversations } from "../lib/peer-messages";
 import { revokePendingAttachmentPreviews } from "../lib/pending-attachments";
 import { markAfterPaint, markOnce } from "../lib/performance";
@@ -191,6 +192,9 @@ export function ShellPage() {
   const [peerMessagesOpen, setPeerMessagesOpen] = useState(false);
   const [peerMessagesFocusId, setPeerMessagesFocusId] = useState<string | null>(null);
   const [routines, setRoutines] = useState<Routine[]>([]);
+  // Only models whose provider the user has actually connected: the full Pi
+  // catalog is thousands of entries, nearly none of which this workspace can run.
+  const [connectedModels, setConnectedModels] = useState<ModelCatalogEntry[]>([]);
   const [routinesBotId, setRoutinesBotId] = useState<string | null>(null);
   const [taughtSkills, setTaughtSkills] = useState<TaughtSkill[]>([]);
   const [taughtSkillsBotId, setTaughtSkillsBotId] = useState<string | null>(null);
@@ -295,6 +299,35 @@ export function ShellPage() {
       );
     });
   }, []);
+  // Loaded once the settings panel is open, so the catalog is not fetched for
+  // every session that never picks a model.
+  useEffect(() => {
+    if (panel !== "settings" || connectedModels.length > 0) return;
+    let cancelled = false;
+    void Promise.all([rpc.models.list(), rpc.models.credentials()])
+      .then(([catalog, credentials]) => {
+        if (cancelled) return;
+        const connected = new Set(credentials.map((credential) => credential.provider));
+        setConnectedModels(catalog.filter((entry) => connected.has(entry.provider)));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [panel, connectedModels.length]);
+
+  async function setBotModel(botIdToSet: string, value: string) {
+    const [provider, modelId] = value ? value.split("::") : [null, null];
+    const updated = await rpc.bots.setModel({
+      botId: botIdToSet,
+      provider: provider || null,
+      modelId: modelId || null,
+    });
+    setBots((current) =>
+      current.map((candidate) => (candidate.id === updated.id ? updated : candidate)),
+    );
+  }
+
   const markBotRead = useCallback(
     async (id: string) => {
       await rpc.threads.markRead({ botId: id });
@@ -1863,6 +1896,28 @@ export function ShellPage() {
                     </Button>
                   )}
                 </div>
+                <div className="mt-[30px] mb-3 text-[14px] text-[#85858A]">Model</div>
+                <select
+                  aria-label="Model for this bot"
+                  value={active.modelId ? `${active.modelProvider}::${active.modelId}` : ""}
+                  onChange={(event) => void setBotModel(active.id, event.target.value)}
+                  className="w-full rounded-[11px] border border-[#26262A] bg-transparent px-3 py-2.5 text-[14px] text-[#ECECEE]"
+                >
+                  <option value="">Workspace default</option>
+                  {connectedModels.map((entry) => (
+                    <option
+                      key={`${entry.provider}::${entry.id}`}
+                      value={`${entry.provider}::${entry.id}`}
+                    >
+                      {entry.label || entry.id}
+                    </option>
+                  ))}
+                </select>
+                {connectedModels.length === 0 ? (
+                  <p className="mt-2 text-[13px] text-[#6C6C70]">
+                    Connect a model provider to choose one for this bot.
+                  </p>
+                ) : null}
                 <div className="mt-[30px] mb-3 text-[14px] text-[#85858A]">Routines</div>
                 {activeRoutines.map((routine) => (
                   <button

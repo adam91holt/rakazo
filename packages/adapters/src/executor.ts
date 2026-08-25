@@ -56,6 +56,7 @@ import {
   createThreadMessageInTransaction,
   effectiveMemoryScope,
   findDefaultModelCredential,
+  findModelCredentialForProvider,
   type McpServer,
   type Prisma,
   type PrismaClient,
@@ -506,7 +507,6 @@ export function createRunExecutor(deps: ExecutorDeps) {
           messages,
           task,
           storedConnections,
-          credential,
           settings,
           configuredMemory,
           savedSkills,
@@ -534,13 +534,20 @@ export function createRunExecutor(deps: ExecutorDeps) {
               status: true,
             },
           }),
-          findDefaultModelCredential(deps.prisma, run),
           deps.prisma.deploymentSettings.findUnique({ where: { id: "default" } }),
           deps.memoryProviders.resolve(run.workspaceId),
           deps.prisma.taughtSkill.findMany({
             where: { botId: run.botId, workspaceId: run.workspaceId, status: "saved" },
           }),
         ]);
+        // Resolved after the batch because it depends on the bot's own provider:
+        // a bot pinned to a model must run on that provider's credential, not
+        // whichever one happens to be the workspace default.
+        const credential = await findModelCredentialForProvider(
+          deps.prisma,
+          run,
+          bot.modelProvider,
+        );
         runAbortController = new AbortController();
         if (!leaseValid) runAbortController.abort();
         const composioRows = storedConnections.filter(
@@ -1615,8 +1622,14 @@ export function createRunExecutor(deps: ExecutorDeps) {
               currentTurnImages,
               tools,
               model: {
-                provider: credential?.provider ?? settings?.defaultModelProvider ?? "scripted",
-                id: credential?.defaultModel ?? settings?.defaultModelId ?? "scripted",
+                // A bot pinned to its own model overrides the workspace default.
+                provider:
+                  bot.modelProvider ??
+                  credential?.provider ??
+                  settings?.defaultModelProvider ??
+                  "scripted",
+                id:
+                  bot.modelId ?? credential?.defaultModel ?? settings?.defaultModelId ?? "scripted",
                 apiKey: resolved.oauth ? undefined : resolved.apiKey,
                 baseUrl: resolved.baseUrl,
                 oauth: resolved.oauth

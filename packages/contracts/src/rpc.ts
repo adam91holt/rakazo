@@ -156,6 +156,16 @@ export const appContract = {
     duplicate: oc.input(botId).output(BotSchema),
     update: oc.input(UpdateBotInput).output(BotSchema),
     setComputer: oc.input(z.object({ botId: Id, mode: ComputerModeSchema })).output(BotSchema),
+    setModel: oc
+      .input(
+        z.object({
+          botId: Id,
+          // Both null returns the bot to the workspace default.
+          provider: z.string().min(1).nullable(),
+          modelId: z.string().min(1).nullable(),
+        }),
+      )
+      .output(BotSchema),
     archive: oc.input(botId).output(z.object({ ok: z.literal(true) })),
     restore: oc.input(botId).output(z.object({ ok: z.literal(true) })),
     remove: oc

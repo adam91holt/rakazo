@@ -19,6 +19,8 @@ function mapBot(
     description: string;
     instructions: string;
     color: string;
+    modelProvider?: string | null;
+    modelId?: string | null;
     notifyOnFinish: boolean;
     pinned: boolean;
     sectionId: string | null;
@@ -46,6 +48,8 @@ function mapBot(
     description: bot.description,
     instructions: bot.instructions,
     color: bot.color,
+    modelProvider: bot.modelProvider ?? null,
+    modelId: bot.modelId ?? null,
     notifyOnFinish: bot.notifyOnFinish,
     pinned: bot.pinned,
     sectionId: bot.sectionId,

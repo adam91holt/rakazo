@@ -221,6 +221,9 @@ model Bot {
   description    String   @default("")
   instructions   String   @default("")
   color          String
+  // When set, this bot runs on its own model instead of the workspace default.
+  modelProvider  String?
+  modelId        String?
   notifyOnFinish Boolean  @default(true)
   pinned         Boolean  @default(false)
   sectionId      String?

@@ -588,6 +588,27 @@ export function createRouter(deps: RouterDeps) {
         if (!bot) throw new IsolationError();
         return bot;
       }),
+      setModel: authed.bots.setModel.handler(async ({ context, input }) => {
+        // Reading it first keeps the workspace check in one place.
+        await repos.getBot(context.actor, input.botId);
+        await deps.prisma.bot.updateMany({
+          where: {
+            id: input.botId,
+            workspaceId: context.actor.workspaceId,
+            userId: context.actor.userId,
+          },
+          // A bot is either pinned to a specific model or follows the workspace
+          // default; a provider without a model would silently do neither.
+          data: {
+            modelProvider: input.provider && input.modelId ? input.provider : null,
+            modelId: input.provider && input.modelId ? input.modelId : null,
+          },
+        });
+        const bots = await repos.listBots(context.actor);
+        const updated = bots.find((candidate) => candidate.id === input.botId);
+        if (!updated) throw new IsolationError();
+        return updated;
+      }),
       setComputer: authed.bots.setComputer.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId);
         if (!bot.computer) throw new IsolationError();

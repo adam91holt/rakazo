@@ -17,6 +17,9 @@ export const BotSchema = z.object({
   description: z.string(),
   instructions: z.string(),
   color: z.string(),
+  /** Set when this bot runs on its own model rather than the workspace default. */
+  modelProvider: z.string().nullable(),
+  modelId: z.string().nullable(),
   notifyOnFinish: z.boolean(),
   pinned: z.boolean(),
   sectionId: Id.nullable(),
