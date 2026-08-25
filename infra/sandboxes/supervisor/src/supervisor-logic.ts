@@ -177,10 +177,13 @@ export function ensureScreenCommand(index: number) {
     `  for i in $(seq 1 100); do xdpyinfo -display ${layout.display} >/dev/null 2>&1 && break; sleep 0.1; done`,
     `fi`,
     `xdpyinfo -display ${layout.display} >/dev/null 2>&1 || exit 1`,
-    // Window manager
-    `if ! pgrep -f "xfwm4.*${layout.display}" >/dev/null 2>&1 && ! DISPLAY=${layout.display} xprop -root _NET_SUPPORTING_WM_CHECK >/dev/null 2>&1; then`,
+    // Window manager. xprop exits 0 whether or not the property exists — it
+    // prints "not found." and succeeds — so its output has to be inspected.
+    // Matching on the process is no good either: the display is in xfwm4's
+    // environment, not its arguments.
+    `if ! DISPLAY=${layout.display} xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q "window id"; then`,
     `  DISPLAY=${layout.display} rakazo-desktop >${log}-desktop.log 2>&1 &`,
-    `  for i in $(seq 1 60); do DISPLAY=${layout.display} xprop -root _NET_SUPPORTING_WM_CHECK >/dev/null 2>&1 && break; sleep 0.25; done`,
+    `  for i in $(seq 1 60); do DISPLAY=${layout.display} xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q "window id" && break; sleep 0.25; done`,
     `fi`,
     // Browser, on its own profile so it cannot signal the primary screen's instance
     `if ! DISPLAY=${layout.display} xdotool search --onlyvisible --class chromium >/dev/null 2>&1; then`,

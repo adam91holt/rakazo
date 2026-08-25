@@ -193,6 +193,19 @@ describe("sandbox supervisor input containment", () => {
     expect(ensureScreenCommand(1)).not.toContain("fluxbox");
   });
 
+  it("detects a window manager by xprop's output, not its exit code", () => {
+    const command = ensureScreenCommand(1);
+    // xprop prints "not found." and exits 0 when the property is absent, so
+    // testing its status left every extra screen without a window manager.
+    expect(command).toContain(
+      'xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q "window id"',
+    );
+    expect(command).not.toMatch(/xprop -root _NET_SUPPORTING_WM_CHECK >\/dev\/null 2>&1/);
+    // xfwm4 takes its display from the environment, so matching it by argument
+    // never fires.
+    expect(command).not.toContain('pgrep -f "xfwm4.*:2"');
+  });
+
   it("generates syntactically valid shell to start an extra display", () => {
     const result = spawnSync("bash", ["-n"], { input: ensureScreenCommand(1) });
     expect(result.status).toBe(0);

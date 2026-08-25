@@ -138,6 +138,11 @@ export class DockerSandboxProvider implements SandboxProvider {
       if (/cannot allocate another screen/i.test(detail)) {
         throw new Error("This Team Computer cannot allocate another screen.");
       }
+      // A null url renders as an empty screen panel, so without this the only
+      // symptom of any other refusal is a blank rectangle and a silent log.
+      console.error(
+        `computer screen unavailable for ${computer.botId ?? computer.id}: ${res.status} ${detail.slice(0, 300)}`,
+      );
       return { url: null, mimeType: "text/html", close: async () => undefined };
     }
     const body = (await res.json()) as { screenUrl?: string };

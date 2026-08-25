@@ -619,7 +619,16 @@ async function managedScreen(
   const ensured = await runContainerCommand(container, ["bash", "-lc", ensureScreenCommand(index)]);
   if (ensured.code !== 0) {
     assigned.delete(screenId || botId || id);
-    throw new Error(ensured.stderr || `computer screen ${layout.display} failed to start`);
+    // The script says which step gave up; reporting only a generic sentence
+    // meant every screen failure had to be reproduced by hand to learn anything.
+    const detail = [ensured.stderr, ensured.stdout]
+      .map((part) => part?.trim())
+      .filter(Boolean)
+      .join(" | ")
+      .slice(0, 600);
+    throw new Error(
+      `computer screen ${layout.display} failed to start (exit ${ensured.code})${detail ? `: ${detail}` : ""}`,
+    );
   }
   return { container, info, layout };
 }
