@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { resolveSupervisorToken } from "@rakazo/core";
 import { describe, expect, it } from "vitest";
-import { resolveDockerSocketPath, supervisorApp } from "./index.js";
+import { isNoSuchContainer, resolveDockerSocketPath, supervisorApp } from "./index.js";
 import {
   assertRequestIdentity,
   clearComputerScreenRegistry,
@@ -295,5 +295,23 @@ describe("sandbox supervisor input containment", () => {
       activeWindow: { id: "99", title: "Browser" },
     });
     expect(() => parseObservation("GEOM 1280 800\nIMAGE ")).toThrow(/no image/);
+  });
+});
+
+describe("replaced containers", () => {
+  it("recognises a container that no longer exists", () => {
+    expect(isNoSuchContainer(Object.assign(new Error("nope"), { statusCode: 404 }))).toBe(true);
+    expect(
+      isNoSuchContainer(new Error("(HTTP code 404) no such container - No such container: abc")),
+    ).toBe(true);
+  });
+
+  it("does not treat other docker failures as a missing container", () => {
+    // Falling back to the bot's container on any error would hide a real fault
+    // and could hand back a container the caller was refused access to.
+    expect(isNoSuchContainer(Object.assign(new Error("boom"), { statusCode: 500 }))).toBe(false);
+    expect(isNoSuchContainer(new Error("computer identity mismatch"))).toBe(false);
+    expect(isNoSuchContainer(new Error("connect EACCES /var/run/docker.sock"))).toBe(false);
+    expect(isNoSuchContainer(undefined)).toBe(false);
   });
 });

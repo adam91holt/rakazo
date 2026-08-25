@@ -160,7 +160,15 @@ export class DockerSandboxProvider implements SandboxProvider {
       body: JSON.stringify({ interactive, controlToken }),
       signal: context.signal,
     });
-    if (!res.ok) throw new Error(`sandbox screen mode failed: ${res.status}`);
+    if (!res.ok) {
+      // The supervisor explains the refusal in the body; without it every
+      // screen failure reads as an opaque status and has to be reproduced by
+      // hand against the supervisor to learn anything.
+      const detail = await res.text().catch(() => "");
+      throw new Error(
+        `sandbox screen mode failed: ${res.status}${detail ? ` ${detail.slice(0, 300)}` : ""}`,
+      );
+    }
   }
 
   async sendInput(

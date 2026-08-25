@@ -109,7 +109,12 @@ app.post("/computers", async (c) => {
         info.Image !== desired.Id ||
         (networkMode && info.HostConfig.NetworkMode !== networkMode)
       ) {
-        await existing.remove({ force: true }).catch(() => undefined);
+        // Swallowing this left the old container in place and the create below
+        // failing on its name for good: the image never matches, so every later
+        // provision retried the same doomed sequence. Docker also frees the name
+        // slightly after the call returns, so wait for it rather than racing.
+        await existing.remove({ force: true });
+        await waitForContainerGone(existing);
       } else {
         if (!info.State.Running) await existing.start();
         const screenUrl = await publishedScreenUrl(existing, info.State.Running ? info : undefined);
@@ -542,6 +547,20 @@ async function ensureComputerImage() {
   await imageReady;
 }
 
+/** Docker frees a removed container's name asynchronously; creating too soon conflicts. */
+async function waitForContainerGone(container: Docker.Container, attempts = 50) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await container.inspect();
+    } catch (error) {
+      if (isNoSuchContainer(error)) return;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("timed out waiting for the previous computer container to be removed");
+}
+
 async function findBotContainer(botId: string, workspaceId: string) {
   const listed = await docker.listContainers({
     all: true,
@@ -557,10 +576,29 @@ async function findBotContainer(botId: string, workspaceId: string) {
 
 async function managedContainer(id: string, botId?: string, workspaceId?: string) {
   if (!botId || !workspaceId) throw new Error("missing computer identity");
-  const container = docker.getContainer(id);
-  const info = await container.inspect();
-  if (!isRakazoContainer(info, botId, workspaceId)) throw new Error("computer identity mismatch");
-  return { container, info };
+  try {
+    const container = docker.getContainer(id);
+    const info = await container.inspect();
+    if (!isRakazoContainer(info, botId, workspaceId)) throw new Error("computer identity mismatch");
+    return { container, info };
+  } catch (error) {
+    // The caller stores a container id, so a container replaced out from under
+    // it — an image upgrade, a prune, an operator removing it — leaves that id
+    // pointing at nothing and every later call failing forever, including the
+    // stop that would let it recover. The bot's own container is still
+    // findable by label, so prefer it over staying wedged.
+    if (!isNoSuchContainer(error)) throw error;
+    const replacement = await findBotContainer(botId, workspaceId);
+    if (!replacement) throw error;
+    return { container: replacement, info: await replacement.inspect() };
+  }
+}
+
+export function isNoSuchContainer(error: unknown) {
+  const status = (error as { statusCode?: number } | null)?.statusCode;
+  if (status === 404) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /no such container/i.test(message);
 }
 
 async function managedScreen(
